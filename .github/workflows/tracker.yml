@@ -25,10 +25,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Die Programmdateien liegen in .github/workflows – hierher kopieren
+      - run: cp .github/workflows/tracker.py .github/workflows/config.toml .github/workflows/requirements.txt .
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
 
       - run: pip install --quiet --disable-pip-version-check -r requirements.txt
 
