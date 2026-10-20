@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────
+#  Deine Suchkriterien – hier kannst du alles anpassen.
+#  Nach dem Ändern einfach speichern (auf GitHub: "Commit changes").
+# ─────────────────────────────────────────────────────────────
+
+[suche]
+# Wie viele Seiten (je 10 Wohnungen, neueste zuerst) pro Durchlauf geprüft werden.
+seiten = 5
+
+min_flaeche_m2   = 40
+min_zimmer       = 1        # 1 = auch große 1-Zimmer-Wohnungen
+max_warmmiete    = 1200     # Gesamtmiete in €
+erdgeschoss_ok   = false
+
+# Hast du einen WBS? Dann werden auch Wohnungen mit "WBS erforderlich" gemeldet.
+habe_wbs   = true
+wbs_stufe  = 160            # Wohnungen nur für kleinere Stufen (z. B. "nur WBS 140") werden aussortiert
+
+# Befristete Wohnungen sind ok, wenn sie mindestens bis zu diesem Datum laufen.
+# Steht im Titel "befristet", aber kein Datum, wird sie trotzdem gemeldet (mit ⚠️).
+befristet_mindestens_bis = "2027-07-01"
+
+# Wohnungen, deren Titel eines dieser Wörter enthält, werden ignoriert.
+ausschluss_woerter = [
+  "senioren", "ab 55", "ab 60", "rentner", "ältere menschen", "rollstuhl",
+  "besonderem wohnbedarf", "bes.wohnbedarf", "wg-zimmer", "studierende", "studenten",
+  "auszubildende", "gewerbe", "stellplatz", "tiefgarage",
+]
+
+# ── Lage ──────────────────────────────────────────────────────
+# Gemeldet wird alles INNERHALB der Ringbahn (S41/S42) – geprüft über die
+# genauen Koordinaten jeder Wohnung – plus ein Streifen direkt außen am Ring.
+ring_puffer_m = 500          # 500 m ≈ 6–7 Minuten zu Fuß von der Ringbahn-Linie
+
+# Diese Bezirke bekommen in der Nachricht einen ⭐ (werden aber nicht exklusiv gefiltert).
+wunsch_bezirke = [
+  "Mitte", "Charlottenburg-Wilmersdorf", "Tempelhof-Schöneberg",
+  "Friedrichshain-Kreuzberg", "Pankow",
+]
+
+# Zusätzlich immer melden, auch wenn außerhalb des Rings (Friedenau liegt knapp südlich).
+extra_plz = ["12157", "12159", "12161"]
+
+# Nie melden – z. B. wenn dir ein Kiez im Ring doch nicht gefällt.
+# Weiteres Beispiel: Nord-Neukölln "12043","12045","12047","12049","12051","12053","12055","12059"
+ausschluss_plz = [
+  # Wedding / Gesundbrunnen (Moabit hat eigene PLZ 10551–10559 und bleibt drin)
+  "13347", "13349", "13351", "13353", "13355", "13357", "13359",
+]
+
+[benachrichtigung]
+# E-Mail: Absender, Passwort und Empfänger kommen aus den GitHub-"Secrets"
+# (GMAIL_USER, GMAIL_APP_PASSWORD, EMAIL_AN) – nicht hier eintragen,
+# denn diese Datei ist öffentlich sichtbar.
+
+# Push aufs Handy über die kostenlose App "ntfy" (optional):
+# Lege den geheimen Themen-Namen als GitHub-Secret NTFY_THEMA an (nicht hier!).
+ntfy_thema = ""
