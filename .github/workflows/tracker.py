@@ -153,14 +153,37 @@ def parse_seite(html: str) -> list[Wohnung]:
     return wohnungen
 
 
+class SeiteNichtErreichbar(Exception):
+    pass
+
+
+def _hole_seite(s: requests.Session, seite: int) -> str:
+    """Eine Seite abrufen, bei Netzwerk- oder Serverfehlern bis zu 3 Versuche."""
+    letzter_fehler = None
+    for versuch in range(3):
+        try:
+            r = s.get(BASE_URL, params={"page": seite}, timeout=30)
+            r.raise_for_status()
+            return r.text
+        except requests.RequestException as e:
+            letzter_fehler = e
+            print(f"⚠️  Seite {seite}, Versuch {versuch + 1}: {e}")
+            time.sleep(5 * (versuch + 1))
+    raise SeiteNichtErreichbar(str(letzter_fehler))
+
+
 def hole_wohnungen(seiten: int) -> list[Wohnung]:
     alle: list[Wohnung] = []
     with requests.Session() as s:
         s.headers.update(HEADERS)
         for seite in range(1, seiten + 1):
-            r = s.get(BASE_URL, params={"page": seite}, timeout=30)
-            r.raise_for_status()
-            treffer = parse_seite(r.text)
+            try:
+                html = _hole_seite(s, seite)
+            except SeiteNichtErreichbar:
+                if seite == 1:
+                    raise
+                break  # mit dem weitermachen, was wir schon haben
+            treffer = parse_seite(html)
             if not treffer:
                 break
             alle.extend(treffer)
@@ -370,28 +393,47 @@ def sende_mail(an: str, betreff: str, text: str, html: str) -> None:
     print(f"✉️  E-Mail an {an} gesendet.")
 
 
-def sende_push(thema: str, neue: list[Wohnung]) -> None:
-    for w in neue[:5]:
-        requests.post("https://ntfy.sh/", timeout=15, json={
-            "topic": thema,
-            "title": f"🏠 {w.adresse.split(',')[0]} – {euro(w.warmmiete)}",
-            "message": kurzinfo(w) + ("\n" + " · ".join(w.hinweise) if w.hinweise else ""),
-            "click": w.link,
-            "priority": 4,
-            "tags": ["house"],
-        }).raise_for_status()
-    print(f"📱 {min(len(neue), 5)} Push-Nachricht(en) gesendet.")
+def sende_push(thema: str, neue: list[Wohnung]) -> set[str]:
+    """Schickt bis zu 8 Nachrichten; gibt die IDs zurück, die erfolgreich gemeldet wurden."""
+    ok: set[str] = set()
+    for w in neue[:8]:
+        for versuch in range(3):
+            try:
+                requests.post("https://ntfy.sh/", timeout=15, json={
+                    "topic": thema,
+                    "title": f"🏠 {w.adresse.split(',')[0]} – {euro(w.warmmiete)}",
+                    "message": kurzinfo(w) + ("\n" + " · ".join(w.hinweise) if w.hinweise else ""),
+                    "click": w.link,
+                    "priority": 4,
+                    "tags": ["house"],
+                }).raise_for_status()
+                ok.add(w.id)
+                break
+            except requests.RequestException as e:
+                print(f"⚠️  Push für {w.adresse} fehlgeschlagen (Versuch {versuch + 1}): {e}")
+                time.sleep(5 * (versuch + 1))
+        time.sleep(1)
+    print(f"📱 {len(ok)} Push-Nachricht(en) gesendet.")
+    return ok
 
 
-def benachrichtige(neue: list[Wohnung], b: dict) -> None:
+def benachrichtige(neue: list[Wohnung], b: dict) -> set[str]:
+    """Gibt die IDs zurück, die über mindestens einen Weg gemeldet wurden."""
     an = os.environ.get("EMAIL_AN") or os.environ.get("GMAIL_USER")
-    if not an and not (os.environ.get("NTFY_THEMA") or b.get("ntfy_thema")):
-        raise SystemExit("❌ Kein Benachrichtigungsweg eingerichtet – Secret NTFY_THEMA fehlt.")
-    if an:
-        sende_mail(an, *baue_mail(neue))
     thema = os.environ.get("NTFY_THEMA") or b.get("ntfy_thema")
+    if not an and not thema:
+        raise SystemExit("❌ Kein Benachrichtigungsweg eingerichtet – Secret NTFY_THEMA fehlt.")
+    gemeldet: set[str] = set()
+    if an:
+        try:
+            sende_mail(an, *baue_mail(neue))
+            if os.environ.get("GMAIL_APP_PASSWORD"):
+                gemeldet |= {w.id for w in neue}
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️  E-Mail fehlgeschlagen: {e}")
     if thema:
-        sende_push(thema, neue)
+        gemeldet |= sende_push(thema, neue)
+    return gemeldet
 
 
 # ───────────────────────────── Hauptprogramm ─────────────────────────────
@@ -413,7 +455,12 @@ def main() -> int:
         benachrichtige([beispiel], b)
         return 0
 
-    wohnungen = hole_wohnungen(k.get("seiten", 5))
+    try:
+        wohnungen = hole_wohnungen(k.get("seiten", 5))
+    except SeiteNichtErreichbar as e:
+        # Kurze Störung bei inberlinwohnen.de – kein Fehler, der nächste Lauf versucht es wieder.
+        print(f"⚠️  inberlinwohnen.de gerade nicht erreichbar ({e}). Nächster Lauf versucht es erneut.")
+        return 0
     if not wohnungen:
         print("❌ Keine Wohnungen ausgelesen – hat sich die Seite geändert?")
         return 1
@@ -431,11 +478,14 @@ def main() -> int:
     if args.dry_run:
         return 0
 
-    if neue:
-        benachrichtige(neue, b)
+    gemeldet = benachrichtige(neue, b) if neue else set()
+    nicht_gemeldet = {w.id for w in neue} - gemeldet
+    if nicht_gemeldet:
+        print(f"⚠️  {len(nicht_gemeldet)} Treffer nicht gemeldet – werden beim nächsten Lauf erneut versucht.")
     heute = date.today().isoformat()
     for w in wohnungen:  # alle merken, damit spätere Kriterien-Änderungen nicht alte Wohnungen nachmelden
-        gesehen.setdefault(w.id, heute)
+        if w.id not in nicht_gemeldet:
+            gesehen.setdefault(w.id, heute)
     speichere_gesehen(gesehen)
     return 0
 
